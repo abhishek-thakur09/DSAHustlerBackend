@@ -3,8 +3,6 @@ const jwt = require("jsonwebtoken");
 module.exports = (req, res, next) => {
   const token = req.cookies?.token;
 
-  console.log(token);
-
   if (!token) {
     return res.status(401).json({
       message: "User is not authenticated",
@@ -18,8 +16,6 @@ module.exports = (req, res, next) => {
       id: decoded.userId,
       role: decoded.role,
     };
-
-    console.log(req.user);
 
     next();
   } catch (error) {

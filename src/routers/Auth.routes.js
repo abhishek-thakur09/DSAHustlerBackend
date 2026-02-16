@@ -1,4 +1,6 @@
 const express = require("express");
+const { Readable } = require("stream");
+const cloudinary = require("../utils/cloudinary.js");
 const User = require("../models/user");
 const jwt = require("jsonwebtoken");
 const { authLimiter } = require("../utils/rate.js");
@@ -8,12 +10,18 @@ const upload = require("../middleware/upload.js");
 
 const router = express.Router();
 
-
 router.post("/signin", async (req, res) => {
   try {
-    const { profileImage, name, email, password, role } = req.body;
-
-    console.log(name);
+    const {
+      profileImage,
+      name,
+      lastName,
+      email,
+      password,
+      role,
+      likedInProfile,
+      GithubProfile,
+    } = req.body;
 
     const searchUser = await User.findOne({ email });
 
@@ -21,7 +29,16 @@ router.post("/signin", async (req, res) => {
       return res.status(400).json("email is already taken");
     }
 
-    await User.create({profileImage, name, email, password, role });
+    await User.create({
+      profileImage,
+      name,
+      lastName,
+      email,
+      password,
+      likedInProfile,
+      GithubProfile,
+      role,
+    });
     res.status(201).json({ message: "user signIn successfully" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -69,7 +86,6 @@ router.post("/login", authLimiter, async (req, res) => {
       },
     });
   } catch (err) {
-    console.log(err);
     res.status(500).json({ message: "server failed" });
   }
 });
@@ -88,24 +104,53 @@ router.get("/loggedinUser", authmiddleware, async (req, res) => {
   }
 });
 
-
 // for uploading profile image
 router.post(
   "/upload",
+  authmiddleware, // get logged-in user
   upload.single("profileImage"),
   async (req, res) => {
-
     try {
+      if (!req.file) {
+        return res.status(400).json({
+          message: "profileImage is required",
+        });
+      }
 
-      console.log("FILE:", req.file);
-      console.log("BODY:", req.body);
+      // cloudinary values
+      const newImageUrl = req.file.path;
+      const newPublicId = req.file.filename;
 
-      res.json({ ok: true });
+      // logged-in user id
+      const user = await User.findById(req.user.id);
+
+      console.log(user);
+
+      if (!user) {
+        return res.status(404).json({
+          message: "User not found",
+        });
+      }
+
+      // delete old image
+      if (user.profileImagePublicId) {
+        await cloudinary.uploader.destroy(user.profileImagePublicId);
+      }
+
+      // update new image
+      user.profileImage = newImageUrl;
+      user.profileImagePublicId = newPublicId;
+
+      await user.save();
+
+      res.json({
+        success: true,
+        message: "Profile image updated",
+        user,
+      });
 
     } catch (err) {
-
-      console.log("🔥🔥 REAL ERROR:", err);   // <--- MOST IMPORTANT
-
+      console.log(err);
       res.status(500).json({
         message: err.message,
       });
@@ -113,35 +158,45 @@ router.post(
   }
 );
 
+router.patch("/update", authmiddleware, async (req, res) => {
+  try {
+    const allowedUpdates = ["name", "lastName", "likedInProfile", "GithubProfile"];
 
-
-router.patch("/update", authmiddleware,async (req, res) => {
-    try {      console.log("BODY:", req.body);
-
-      const updates = {};
-
-      if (req.body.name) {
-        updates.name = req.body.name;
+    const updates = {};
+    Object.keys(req.body).forEach((key) => {
+      if (allowedUpdates.includes(key)) {
+        updates[key] = req.body[key];
       }
+    });
 
-
-      const user = await User.findByIdAndUpdate(
-        req.user.id,
-        updates,
-        { new: true }
-      );
-
-      res.status(200).json({
-        message: "Profile updated successfully",
-        user,
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({
+        message: "No valid fields provided for update",
       });
-
-    } catch (err) {
-      console.log(err);
-      res.status(500).json({ message: err.message });
     }
+
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    console.log(user);
+
+    res.json({
+      message: "Profile updated successfully",
+      user,
+    });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ message: err.message });
   }
-);
+});
 
 
 router.get("/stats", async (req, res) => {

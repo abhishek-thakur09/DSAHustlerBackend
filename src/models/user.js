@@ -7,7 +7,10 @@ const userSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-
+    lastName:{
+      type: String,
+      trim: true,
+    },
     email: {
       type: String,
       required: true,
@@ -35,6 +38,10 @@ const userSchema = new mongoose.Schema(
     },
 
     likedInProfile:{
+      type: String,
+      trim: true,
+    },
+     GithubProfile:{
       type: String,
       trim: true,
     }

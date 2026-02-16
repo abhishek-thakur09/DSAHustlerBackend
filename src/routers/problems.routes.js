@@ -68,47 +68,26 @@ router.post("/problem", authmiddleware, async (req, res) => {
 
 router.get("/problems", async (req, res) => {
   try {
+    const page = parseInt(req.query.page);
+    const limit = parseInt(req.query.limit);
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-
-    const cachedKey = `problems:page:${page}:limit:${limit}`;
-
-    //REDIS 
-    const cached = await client.get(cachedKey);
-
-    if (cached) {
-      console.log("## From Redis");
-      return res.json(JSON.parse(cached));
+    // if no pagination → return all problems
+    if (!page || !limit) {
+      const problems = await Problem.find();
+      return res.json({ total: problems.length, problems });
     }
 
-    // IF radis miss → MOngo
     const skip = (page - 1) * limit;
 
-    const problems = await Problem.find()
-      .skip(skip)
-      .limit(limit);
-
-    // use to calculate the total documents present in the schema
+    const problems = await Problem.find().skip(skip).limit(limit);
     const total = await Problem.countDocuments();
 
-    const response = {
+    res.json({
       total,
       problems,
       totalPages: Math.ceil(total / limit),
       currentPage: page,
-    };
-
-    //cache response
-    await client.set(
-      cachedKey,
-      JSON.stringify(response),
-      { EX: 3600 }
-    );
-
-    console.log("## From MongoDB");
-
-    res.json(response);
+    });
 
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch" });
@@ -130,7 +109,7 @@ router.get("/singleProblem/:id", authmiddleware, async (req, res) => {
 
     res.status(200).json(problem);
   } catch (error) {
-    res.status(500).send({ message: "server hash been crashed!" });
+    res.status(500).send({ message: "server ~hash been crashed!" });
   }
 });
 
