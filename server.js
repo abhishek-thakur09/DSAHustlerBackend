@@ -3,6 +3,7 @@ const mongoDb = require("./src/config/database.js");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 
+
 require("dotenv").config();
 
 const app = express();
@@ -10,19 +11,23 @@ const app = express();
 app.use(
   cors({
     origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  })
+  }),
 );
-
 
 app.use(express.json());
 app.use(cookieParser());
 
-const authroute = require("./src/routers/Auth.routes.js");
-const Problems = require("./src/routers/problems.routes.js");
+const Authrouter = require("./src/routers/Auth.routes.js");
+const Problemrouter = require("./src/routers/problems.routes.js");
+const AiRouter = require("./src/routers/AIhandle.js");
 
-app.use("/auth", authroute);
-app.use("/api", Problems);
+app.use("/auth", Authrouter);
+app.use("/api", Problemrouter);
+app.use("/api/ai", AiRouter);
+
 
 app.listen(process.env.PORT_NO, async () => {
   await mongoDb();

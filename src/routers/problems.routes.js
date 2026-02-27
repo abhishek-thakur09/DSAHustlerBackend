@@ -1,11 +1,11 @@
 const express = require("express");
 const Problem = require("../models/problems");
 const authmiddleware = require("../middleware/authentication");
-const client  = require("../utils/radis");
+const client = require("../utils/radis");
 
-const router = express.Router();
+const Problemrouter = express.Router();
 
-router.post("/problem", authmiddleware, async (req, res) => {
+Problemrouter.post("/problem", authmiddleware, async (req, res) => {
   try {
     const {
       title,
@@ -64,9 +64,9 @@ router.post("/problem", authmiddleware, async (req, res) => {
   }
 });
 
-// for getting all the problems
+// for getting all the problems in limit
 
-router.get("/problems", async (req, res) => {
+Problemrouter.get("/problems", async (req, res) => {
   try {
     const page = parseInt(req.query.page);
     const limit = parseInt(req.query.limit);
@@ -88,16 +88,27 @@ router.get("/problems", async (req, res) => {
       totalPages: Math.ceil(total / limit),
       currentPage: page,
     });
-
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch" });
   }
 });
 
 
+
+Problemrouter.get("/allProblems", async(req, res)=>{
+  try{
+        const problems = await Problem.find();
+
+        res.json({problems});
+  }
+  catch(err){
+    res.status(404).send({message: "problems not found"});
+  }
+})
+
 // get the single problem!
 
-router.get("/singleProblem/:id", authmiddleware, async (req, res) => {
+Problemrouter.get("/singleProblem/:id", authmiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -115,16 +126,15 @@ router.get("/singleProblem/:id", authmiddleware, async (req, res) => {
 
 // get problem with tags
 
-router.get("/problem/tag/:tag", authmiddleware, async (req, res) => {
+Problemrouter.get("/problem/tag/:tag", authmiddleware, async (req, res) => {
   try {
-
-    const {tag} = req.params;
+    const { tag } = req.params;
 
     const problems = await Problem.find({
       tags: { $in: [tag] },
     }).select("title difficulty tags");
 
-     if (problems.length === 0) { 
+    if (problems.length === 0) {
       return res.status(404).json({
         message: `No problems found for tag: ${tag}`,
       });
@@ -135,57 +145,65 @@ router.get("/problem/tag/:tag", authmiddleware, async (req, res) => {
       problems,
     });
   } catch (error) {
-    res.status(500).send({ message: "Server is failed!",error });
+    res.status(500).send({ message: "Server is failed!", error });
   }
 });
 
 // get problems by their difficulty level
 
-router.get("/difficultylevel/:levels", authmiddleware, async (req, res) => {
-  try {
-    const { level } = req.params;
-    const problem = await Problem.find(level);
+Problemrouter.get(
+  "/difficultylevel/:levels",
+  authmiddleware,
+  async (req, res) => {
+    try {
+      const { level } = req.params;
+      const problem = await Problem.find(level);
 
-    res.status(200).send(problem);
-  } catch (error) {
-    res.status(500).send({ message: "Your server has been failed!" });
-  }
-});
+      res.status(200).send(problem);
+    } catch (error) {
+      res.status(500).send({ message: "Your server has been failed!" });
+    }
+  },
+);
 
 // Delete the problem
 
-router.delete("/delete-problem/:id", authmiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
+Problemrouter.delete(
+  "/delete-problem/:id",
+  authmiddleware,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const problem = await Problem.findByIdAndDelete(id);
+      const problem = await Problem.findByIdAndDelete(id);
 
-    if (!problem) {
-      return res.status(404).send({ message: "Problem not found!" });
+      if (!problem) {
+        return res.status(404).send({ message: "Problem not found!" });
+      }
+      res.status(200).send({ message: "Problem deleted successfully" });
+    } catch (err) {
+      res.status(500).send({ message: "Server failed Try again" });
     }
-    res.status(200).send({ message: "Problem deleted successfully" });
-  } catch (err) {
-    res.status(500).send({ message: "Server failed Try again" });
-  }
-});
+  },
+);
 
 // update the problem
-router.patch("/update-problem/:id", authmiddleware, async (req, res) => {
+Problemrouter.patch("/update-problem/:id", authmiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const updateproblem = await Problem.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true },
-    );
+    const updateproblem = await Problem.findByIdAndUpdate(id, req.body, {
+      new: true,
+    });
 
-    res.send(updateproblem);
+    if (!updateproblem) {
+      return res.status(404).json({ message: "Problem not found" });
+    }
 
-    res.status(200).send("user updated successfullyy!");
+    res.status(200).send(updateproblem);
   } catch (err) {
     res.status(500).send({ message: "Server has been failed", err });
   }
 });
 
-module.exports = router;
+module.exports = Problemrouter;

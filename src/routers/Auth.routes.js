@@ -8,9 +8,9 @@ const authmiddleware = require("../middleware/authentication");
 require("dotenv").config();
 const upload = require("../middleware/upload.js");
 
-const router = express.Router();
+const Authrouter = express.Router();
 
-router.post("/signin", async (req, res) => {
+Authrouter.post("/signin", async (req, res) => {
   try {
     const {
       profileImage,
@@ -45,7 +45,7 @@ router.post("/signin", async (req, res) => {
   }
 });
 
-router.post("/login", authLimiter, async (req, res) => {
+Authrouter.post("/login", authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -66,14 +66,14 @@ router.post("/login", authLimiter, async (req, res) => {
     const token = jwt.sign(
       { userId: user._id, role: user.role },
       process.env.JWT_KEY,
-      { expiresIn: "1h" },
+      { expiresIn: "7d" },
     );
 
     res.cookie("token", token, {
       httpOnly: true,
       sameSite: "lax",
       secure: false,
-      maxAge: 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return res.status(200).json({
@@ -90,7 +90,7 @@ router.post("/login", authLimiter, async (req, res) => {
   }
 });
 
-router.get("/loggedinUser", authmiddleware, async (req, res) => {
+Authrouter.get("/loggedinUser", authmiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select("-password");
 
@@ -105,7 +105,7 @@ router.get("/loggedinUser", authmiddleware, async (req, res) => {
 });
 
 // for uploading profile image
-router.post(
+Authrouter.post(
   "/upload",
   authmiddleware, // get logged-in user
   upload.single("profileImage"),
@@ -158,53 +158,44 @@ router.post(
   }
 );
 
-router.patch("/update", authmiddleware, async (req, res) => {
+Authrouter.patch("/update", authmiddleware, async (req, res) => {
   try {
-    const allowedUpdates = ["name", "lastName", "likedInProfile", "GithubProfile"];
-
-    const updates = {};
-    Object.keys(req.body).forEach((key) => {
-      if (allowedUpdates.includes(key)) {
-        updates[key] = req.body[key];
-      }
-    });
-
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({
-        message: "No valid fields provided for update",
-      });
-    }
-
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { $set: updates },
-      { new: true, runValidators: true }
-    ).select("-password");
-
-    if (!user) {
+    if (!req.user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    console.log(user);
+    const loginUser = await User.findById(req.user.id);
+
+    console.log(loginUser);
+
+    if (!loginUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // update fields
+    Object.keys(req.body).forEach((key) => {
+      loginUser[key] = req.body[key];
+    });
+
+    await loginUser.save();
 
     res.json({
       message: "Profile updated successfully",
-      user,
+      user: loginUser,
     });
 
   } catch (err) {
-    console.log(err);
     res.status(500).json({ message: err.message });
   }
 });
 
 
-router.get("/stats", async (req, res) => {
+Authrouter.get("/stats", async (req, res) => {
   const totalUsers = await User.countDocuments();
   res.json({ totalUsers });
 });
 
-router.post("/logout", authmiddleware, (req, res) => {
+Authrouter.post("/logout", authmiddleware, (req, res) => {
   try {
     res.clearCookie("token", {
       httpOnly: true,
@@ -224,4 +215,50 @@ router.post("/logout", authmiddleware, (req, res) => {
   }
 });
 
-module.exports = router;
+Authrouter.get("/users", authmiddleware, async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
+
+Authrouter.delete("/user-delete/:id", authmiddleware, async (req, res) => {
+  try {
+    // get id from params
+    const userId = req.params.id;
+    console.log(userId);
+
+    // delete user
+    const deletedUser = await User.findByIdAndDelete(userId);
+
+    if (!deletedUser) {
+      return res.status(404).json({
+        message: "User not found"
+      });
+    }
+
+    res.status(200).json({
+      message: "User deleted successfully"
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      message: "Server error",
+      error: err.message
+    });
+  }
+});
+
+module.exports = Authrouter;
