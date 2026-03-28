@@ -1,0 +1,62 @@
+services:
+  server:
+    image: mrkushalsm/judge0  
+    ports:
+      - "2358:2358"
+    privileged: true
+    cgroup: host       
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0_password
+      REDIS_HOST: redis
+      REDIS_PASSWORD: redis_password
+      AUTH_TOKEN: my_super_secret_token
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  worker:
+    image: mrkushalsm/judge0  
+    command: ["./scripts/workers"]
+    privileged: true
+    cgroup: host        
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0_password
+      REDIS_HOST: redis
+      REDIS_PASSWORD: redis_password
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  db:
+    image: postgres:13.0
+    environment:
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: always
+
+  redis:
+    image: redis:6.0
+    command: ["bash", "-c", "docker-entrypoint.sh --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: redis_password
+    volumes:
+      - redis-data:/data
+    restart: always
+
+volumes:
+  postgres-data:
+  redis-data:
+
+
+

@@ -26,7 +26,7 @@ const AiRouter = require("./src/routers/AIhandle.js");
 
 app.use("/auth", Authrouter);
 app.use("/api", Problemrouter);
-app.use("/api/ai", AiRouter);
+app.use("/ai", AiRouter);
 
 
 app.listen(process.env.PORT_NO, async () => {
