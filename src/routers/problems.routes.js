@@ -2,7 +2,8 @@ const express = require("express");
 const Problem = require("../models/problems");
 const authmiddleware = require("../middleware/authentication");
 const client = require("../utils/radis");
-
+const Submission = require("../models/submission");
+const axios = require("axios");
 const Problemrouter = express.Router();
 
 Problemrouter.post("/problem", authmiddleware, async (req, res) => {
@@ -14,6 +15,8 @@ Problemrouter.post("/problem", authmiddleware, async (req, res) => {
       tags,
       constraints,
       functionSignature,
+      starterCode,
+      driverCode,
       testCases,
     } = req.body;
 
@@ -50,6 +53,8 @@ Problemrouter.post("/problem", authmiddleware, async (req, res) => {
       tags,
       constraints,
       functionSignature,
+      starterCode,
+      driverCode,
       testCases,
     });
 
@@ -64,45 +69,37 @@ Problemrouter.post("/problem", authmiddleware, async (req, res) => {
   }
 });
 
-// for getting all the problems in limit
+// for getting all the problems
 Problemrouter.get("/problems", async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    // Updated cache key
+    const key = "problems:all";
 
-    const key = `problems:${page}:${limit}`;
-
-    // 1. check cache
+    // Check cache
     const cached = await client.get(key);
-
     if (cached) {
       return res.json(JSON.parse(cached));
     }
 
-    // 2. DB call
-    const skip = (page - 1) * limit;
+    // Fetch all problems sorted by newest first
+    const problems = await Problem.find().sort({ createdAt: -1 });
 
-    const problems = await Problem.find()
-      .sort({ createdAt: -1 }) // ⭐ important
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Problem.countDocuments();
-
+    // We keep 'total' and 'problems' to maintain compatibility with your frontend hook
     const data = {
-      total,
+      total: problems.length,
       problems,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
+      totalPages: 1,
+      currentPage: 1,
     };
 
-    // 3. store in cache
+    //Store in cache
     await client.set(key, JSON.stringify(data), { EX: 60 });
 
-    // 4. response
+    //Send response
     res.json(data);
   } catch (err) {
-    res.status(500).json({ message: "Failed to fetch" });
+    console.error("Error fetching problems:", err);
+    res.status(500).json({ message: "Failed to fetch problems" });
   }
 });
 
@@ -216,20 +213,128 @@ Problemrouter.patch("/update-problem/:id", authmiddleware, async (req, res) => {
   }
 });
 
+//Convert code and input to Base64 (Judge0 requirement)
+const encode = (str) => Buffer.from(str || "").toString("base64");
 
-Problemrouter.post('/submit-code', async (req, res) => {
-  const rawCode = req.body.source_code; // The plain text code from the user
-  const languageId = req.body.language_id;
+//Wait for Judge0 to finish processing the code
+async function pollForResult(token) {
+  const JUDGE0_URL = `http://localhost:2358/submissions/${token}?base64_encoded=false`;
+  while (true) {
+    const res = await axios.get(JUDGE0_URL);
+    const statusId = res.data.status.id;
 
-  // Convert the plain text string to a Base64 encoded string
-  const encodedCode = Buffer.from(rawCode).toString('base64');
+    if (statusId > 2) return res.data;
 
-  const judge0Payload = {
-    source_code: encodedCode,
-    language_id: languageId
-  };
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
 
+// The main function that sends code to Judge0
+async function executeCode(sourceCode, languageId, stdin = "") {
+  const JUDGE0_URL = "http://localhost:2358/submissions";
+  try {
+    const response = await axios.post(
+      `${JUDGE0_URL}/?base64_encoded=true&wait=false`,
+      {
+        source_code: encode(sourceCode),
+        language_id: languageId,
+        stdin: encode(stdin),
+      },
+    );
+
+    return await pollForResult(response.data.token);
+  } catch (error) {
+    console.error("Judge0 API Error:", error.message);
+    throw error;
+  }
+}
+
+Problemrouter.post("/run", async (req, res) => {
+  const { source_code, language_id, problemId, testCases, isSubmit } = req.body;
+
+  try {
+    // 2. Fetch problem from DB
+    const problem = await Problem.findById(problemId);
+    if (!problem) return res.status(404).json({ error: "Problem not found" });
+
+    // 3. Map language_id to schema keys
+    const langMap = { 54: "cpp", 63: "javascript", 71: "python", 62: "java" };
+    const langKey = langMap[language_id];
+    if (!langKey) return res.status(400).json({ error: "Unsupported language" });
+
+    // 4. Prepare Driver Code
+    const driver = problem.driverCode[langKey];
+    if (!driver) return res.status(400).json({ error: "Driver code not found" });
+
+    const finalCompilableCode = driver.replace("//USER_CODE_HERE", source_code);
+
+    // 5. Select Test Cases: 
+    // If it's a Submit, use ALL. If it's a Run, use provided testCases or Samples.
+    let testCasesToRun;
+    if (isSubmit) {
+      testCasesToRun = problem.testCases;
+    } else {
+      testCasesToRun = (Array.isArray(testCases) && testCases.length > 0) 
+        ? testCases 
+        : problem.testCases.filter(t => t.isSample);
+    }
+
+    const testResults = [];
+    let allPassed = true;
+
+    // 6. Execution Loop
+    for (const testCase of testCasesToRun) {
+      const result = await executeCode(
+        finalCompilableCode,
+        language_id,
+        testCase.input
+      );
+
+      const actualOutput = (result.stdout || "").trim();
+      const expectedOutput = (testCase.output || "").trim();
+      const isCorrect = actualOutput === expectedOutput;
+
+      if (!isCorrect) allPassed = false;
+
+      testResults.push({
+        passed: isCorrect,
+        status: result.status?.description || "Error",
+        actual: actualOutput,
+        expected: expectedOutput,
+        time: result.time,
+        memory: result.memory,
+      });
+    }
+
+    const total = testCasesToRun.length;
+    const passedCount = testResults.filter((t) => t.passed).length;
+    const overallStatus = passedCount === total ? "Accepted" : "Rejected";
+
+    if (isSubmit && overallStatus === "Accepted" && req.user) {
+      await Submission.findOneAndUpdate(
+        { user: req.user.id, problem: problemId },
+        { 
+          status: "Accepted", 
+          language_id, 
+          code: source_code,
+          lastPassed: new Date() 
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    // 8. Final Response
+    res.status(200).json({
+      overallStatus,
+      total,
+      passed: passedCount,
+      results: testResults,
+    });
+
+  } catch (err) {
+    console.error("Route Error:", err.message);
+    return res.status(500).json({ error: "Judging failed" });
+  }
 });
-
 
 module.exports = Problemrouter;

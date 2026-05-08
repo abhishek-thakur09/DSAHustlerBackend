@@ -38,6 +38,7 @@ const problemSchema = new mongoose.Schema(
     },
     constraints: {
       type: String,
+      required: true
     },
     functionSignature: {
       type: String,
@@ -47,11 +48,14 @@ const problemSchema = new mongoose.Schema(
       cpp: String,
       python: String,
       javascript: String,
+
     },
     driverCode: {
-      cpp: String,
+     type: {
+        cpp: String,
       python: String,
       javascript: String,
+     }
     },
     testCases: {
       type: [testCaseSchema],

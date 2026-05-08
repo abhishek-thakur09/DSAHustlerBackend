@@ -1,14 +1,49 @@
 const express = require("express");
-const { Readable } = require("stream");
+const mongoose = require("mongoose");
 const cloudinary = require("../utils/cloudinary.js");
 const User = require("../models/user");
 const jwt = require("jsonwebtoken");
 const { authLimiter } = require("../utils/rate.js");
 const authmiddleware = require("../middleware/authentication");
 require("dotenv").config();
+const passport = require("passport");
+const Submission = require("../models/Submission.js");
 const upload = require("../middleware/upload.js");
 
 const Authrouter = express.Router();
+
+Authrouter.get(
+  "/google",
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+  }),
+);
+
+Authrouter.get(
+  "/google/callback",
+  passport.authenticate("google", {
+    failureRedirect: "/login",
+  }),
+  (req, res) => {
+    const token = jwt.sign(
+      {
+        userId: req.user._id,
+        role: req.user.role,
+      },
+      process.env.JWT_KEY,
+      { expiresIn: "7d" },
+    );
+
+    res.cookie("token", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      maxAge: 2 * 24 * 60 * 60 * 1000,
+    });
+
+    res.redirect("http://localhost:5173/");
+  },
+);
 
 Authrouter.post("/signin", async (req, res) => {
   try {
@@ -148,14 +183,13 @@ Authrouter.post(
         message: "Profile image updated",
         user,
       });
-
     } catch (err) {
       console.log(err);
       res.status(500).json({
         message: err.message,
       });
     }
-  }
+  },
 );
 
 Authrouter.patch("/update", authmiddleware, async (req, res) => {
@@ -166,15 +200,23 @@ Authrouter.patch("/update", authmiddleware, async (req, res) => {
 
     const loginUser = await User.findById(req.user.id);
 
-    console.log(loginUser);
-
     if (!loginUser) {
       return res.status(404).json({ message: "User not found" });
     }
 
     // update fields
-    Object.keys(req.body).forEach((key) => {
-      loginUser[key] = req.body[key];
+    const allowedFields = [
+      "name",
+      "lastName",
+      "linkedInProfile",
+      "githubProfile",
+      "bio",
+    ];
+
+    allowedFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        loginUser[field] = req.body[field];
+      }
     });
 
     await loginUser.save();
@@ -183,16 +225,65 @@ Authrouter.patch("/update", authmiddleware, async (req, res) => {
       message: "Profile updated successfully",
       user: loginUser,
     });
-
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
+Authrouter.get("/user-stats", authmiddleware, async (req, res) => {
+  try {
+    // 1. Validate ID
+    const userId = req.user.id || req.user._id;
+    if (!userId)
+      return res.status(401).json({ message: "User not authenticated" });
 
-Authrouter.get("/stats", async (req, res) => {
-  const totalUsers = await User.countDocuments();
-  res.json({ totalUsers });
+    const stats = await Submission.aggregate([
+      {
+        $match: {
+          user: new mongoose.Types.ObjectId(userId),
+          status: "Accepted",
+        },
+      },
+      {
+        $lookup: {
+          from: "problems",
+          localField: "problem",
+          foreignField: "_id",
+          as: "problemDetails",
+        },
+      },
+      { 
+  $unwind: { 
+    path: "$problemDetails", 
+    preserveNullAndEmptyArrays: true 
+  } 
+},
+      {
+        $group: {
+          _id: "$problemDetails.difficulty",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const result = { easy: 0, medium: 0, hard: 0, totalSolved: 0 };
+
+    stats.forEach((item) => {
+      if (item._id) {
+        const difficulty = item._id.toLowerCase();
+        // Check if difficulty is one of our keys
+        if (difficulty in result) {
+          result[difficulty] = item.count;
+        }
+        result.totalSolved += item.count;
+      }
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error("Aggregation Error:", err);
+    res.status(500).json({ message: err.message });
+  }
 });
 
 Authrouter.post("/logout", authmiddleware, (req, res) => {
@@ -222,15 +313,33 @@ Authrouter.get("/users", authmiddleware, async (req, res) => {
     res.status(200).json({
       success: true,
       count: users.length,
-      data: users
+      data: users,
     });
-
   } catch (err) {
     res.status(500).json({
       success: false,
       message: "Server error",
-      error: err.message
+      error: err.message,
     });
+  }
+});
+
+Authrouter.get("/user-activity", authmiddleware, async (req, res) => {
+  try {
+    const activity = await Submission.aggregate([
+      { $match: { user: req.user._id } },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          count: { $sum: 1 },
+        },
+      },
+      { $project: { date: "$_id", count: 1, _id: 0 } },
+      { $sort: { date: 1 } },
+    ]);
+    res.json(activity);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 });
 
@@ -245,18 +354,17 @@ Authrouter.delete("/user-delete/:id", authmiddleware, async (req, res) => {
 
     if (!deletedUser) {
       return res.status(404).json({
-        message: "User not found"
+        message: "User not found",
       });
     }
 
     res.status(200).json({
-      message: "User deleted successfully"
+      message: "User deleted successfully",
     });
-
   } catch (err) {
     res.status(500).json({
       message: "Server error",
-      error: err.message
+      error: err.message,
     });
   }
 });

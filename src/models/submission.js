@@ -2,61 +2,38 @@ const mongoose = require("mongoose");
 
 const submissionSchema = new mongoose.Schema(
   {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
+    user: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: "User", 
+      required: true 
     },
-
-    problemId: {
+    problem: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Problem",
       required: true,
-      index: true,
     },
-
-    code: {
-      type: String,
-      required: true,
+    status: { 
+      type: String, 
+      enum: ["Accepted", "Rejected"], 
+      required: true 
     },
-
-    language: {
-      type: String,
-      enum: ["javascript", "cpp", "java", "python"],
-      required: true,
+    source_code: { 
+      type: String, 
+      required: true 
     },
-
-    status: {
-      type: String,
-      enum: [
-        "Pending",
-        "Accepted",
-        "Wrong Answer",
-        "Time Limit Exceeded",
-        "Runtime Error",
-        "Compilation Error",
-      ],
-      default: "Pending",
-      index: true,
+    language_id: { 
+      type: Number, 
+      required: true 
     },
-
-    runtime: {
-      type: Number, // in ms
-      default: null,
+    runtime: { 
+      type: String 
     },
-
-    memory: {
-      type: Number, //in kb
-      default: null,
-    },
-
-    errorMessage: {
-      type: String,
-      default: null,
+    memory: { 
+      type: Number 
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
+submissionSchema.index({ user: 1, problem: 1, status: 1 });
 
-module.exports = mongoose.model("Submission", submissionSchema);
+module.exports = mongoose.models.Submission || mongoose.model("Submission", submissionSchema);
