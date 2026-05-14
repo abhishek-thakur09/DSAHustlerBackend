@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema(
   password: {
     type: String,
     minlength: 6,
-    default: null, // null for Google/GitHub users
+    default: null, 
   },
 
   role: {

@@ -2,7 +2,7 @@ const express = require("express");
 const Problem = require("../models/problems");
 const authmiddleware = require("../middleware/authentication");
 const client = require("../utils/radis");
-const Submission = require("../models/submission");
+const Submission = require("../models/Submission");
 const axios = require("axios");
 const Problemrouter = express.Router();
 
@@ -216,7 +216,7 @@ Problemrouter.patch("/update-problem/:id", authmiddleware, async (req, res) => {
 //Convert code and input to Base64 (Judge0 requirement)
 const encode = (str) => Buffer.from(str || "").toString("base64");
 
-//Wait for Judge0 to finish processing the code
+// //Wait for Judge0 to finish processing the code
 async function pollForResult(token) {
   const JUDGE0_URL = `http://localhost:2358/submissions/${token}?base64_encoded=false`;
   while (true) {
@@ -229,7 +229,7 @@ async function pollForResult(token) {
   }
 }
 
-// The main function that sends code to Judge0
+// // The main function that sends code to Judge0
 async function executeCode(sourceCode, languageId, stdin = "") {
   const JUDGE0_URL = "http://localhost:2358/submissions";
   try {
@@ -249,47 +249,30 @@ async function executeCode(sourceCode, languageId, stdin = "") {
   }
 }
 
-Problemrouter.post("/run", async (req, res) => {
+Problemrouter.post("/run", authmiddleware, async (req, res) => { // 1. Ensure authmiddleware is present
   const { source_code, language_id, problemId, testCases, isSubmit } = req.body;
 
   try {
-    // 2. Fetch problem from DB
     const problem = await Problem.findById(problemId);
     if (!problem) return res.status(404).json({ error: "Problem not found" });
 
-    // 3. Map language_id to schema keys
     const langMap = { 54: "cpp", 63: "javascript", 71: "python", 62: "java" };
     const langKey = langMap[language_id];
     if (!langKey) return res.status(400).json({ error: "Unsupported language" });
 
-    // 4. Prepare Driver Code
     const driver = problem.driverCode[langKey];
-    if (!driver) return res.status(400).json({ error: "Driver code not found" });
-
     const finalCompilableCode = driver.replace("//USER_CODE_HERE", source_code);
 
-    // 5. Select Test Cases: 
-    // If it's a Submit, use ALL. If it's a Run, use provided testCases or Samples.
-    let testCasesToRun;
-    if (isSubmit) {
-      testCasesToRun = problem.testCases;
-    } else {
-      testCasesToRun = (Array.isArray(testCases) && testCases.length > 0) 
-        ? testCases 
-        : problem.testCases.filter(t => t.isSample);
-    }
+    let testCasesToRun = isSubmit 
+      ? problem.testCases 
+      : (testCases?.length > 0 ? testCases : problem.testCases.filter(t => t.isSample));
 
     const testResults = [];
     let allPassed = true;
 
-    // 6. Execution Loop
     for (const testCase of testCasesToRun) {
-      const result = await executeCode(
-        finalCompilableCode,
-        language_id,
-        testCase.input
-      );
-
+      const result = await executeCode(finalCompilableCode, language_id, testCase.input);
+      
       const actualOutput = (result.stdout || "").trim();
       const expectedOutput = (testCase.output || "").trim();
       const isCorrect = actualOutput === expectedOutput;
@@ -310,29 +293,30 @@ Problemrouter.post("/run", async (req, res) => {
     const passedCount = testResults.filter((t) => t.passed).length;
     const overallStatus = passedCount === total ? "Accepted" : "Rejected";
 
-    if (isSubmit && overallStatus === "Accepted" && req.user) {
-      await Submission.findOneAndUpdate(
-        { user: req.user.id, problem: problemId },
-        { 
-          status: "Accepted", 
-          language_id, 
-          code: source_code,
-          lastPassed: new Date() 
-        },
-        { upsert: true, new: true }
-      );
+    //LOG EVERY SUBMISSION (For Stats & Heatmap)
+    if (isSubmit && req.user) {
+      await Submission.create({
+        user: req.user.id,
+        problem: problemId,
+        status: overallStatus,
+        source_code: source_code,
+        language_id: language_id,
+        runtime: Math.max(...testResults.map(r => parseFloat(r.time) || 0)).toString(),
+        memory: Math.max(...testResults.map(r => parseInt(r.memory) || 0))
+      });
     }
 
-    // 8. Final Response
+    //Return 'isSolved' flag for immediate UI update
     res.status(200).json({
       overallStatus,
       total,
       passed: passedCount,
       results: testResults,
+      isSolved: overallStatus === "Accepted"
     });
 
   } catch (err) {
-    console.error("Route Error:", err.message);
+    console.error("Route Error:", err);
     return res.status(500).json({ error: "Judging failed" });
   }
 });

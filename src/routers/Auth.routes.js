@@ -7,7 +7,7 @@ const { authLimiter } = require("../utils/rate.js");
 const authmiddleware = require("../middleware/authentication");
 require("dotenv").config();
 const passport = require("passport");
-const Submission = require("../models/Submission.js");
+const Submission = require("../models/Submission");
 const upload = require("../middleware/upload.js");
 
 const Authrouter = express.Router();
@@ -325,9 +325,16 @@ Authrouter.get("/users", authmiddleware, async (req, res) => {
 });
 
 Authrouter.get("/user-activity", authmiddleware, async (req, res) => {
+
   try {
     const activity = await Submission.aggregate([
-      { $match: { user: req.user._id } },
+      { 
+        $match: { 
+          // Explicitly cast string ID to MongoDB ObjectId
+          user: new mongoose.Types.ObjectId(req.user.id)
+          
+        } 
+      },
       {
         $group: {
           _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
