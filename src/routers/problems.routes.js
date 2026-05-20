@@ -5,6 +5,7 @@ const client = require("../utils/radis");
 const Submission = require("../models/Submission");
 const axios = require("axios");
 const Problemrouter = express.Router();
+const User  = require("../models/user");
 
 Problemrouter.post("/problem", authmiddleware, async (req, res) => {
   try {
@@ -249,7 +250,13 @@ async function executeCode(sourceCode, languageId, stdin = "") {
   }
 }
 
+
+
+
+
 Problemrouter.post("/run", authmiddleware, async (req, res) => { // 1. Ensure authmiddleware is present
+
+
   const { source_code, language_id, problemId, testCases, isSubmit } = req.body;
 
   try {
@@ -305,6 +312,7 @@ Problemrouter.post("/run", authmiddleware, async (req, res) => { // 1. Ensure au
         memory: Math.max(...testResults.map(r => parseInt(r.memory) || 0))
       });
     }
+
 
     //Return 'isSolved' flag for immediate UI update
     res.status(200).json({

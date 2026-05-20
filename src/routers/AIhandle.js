@@ -9,44 +9,59 @@ const ai = new GoogleGenAI({
 
 AiRouter.post("/aiInstructure", async (req, res) => {
   try {
-    const { message } = req.body;
+    const { type, title, difficulty, tags, description } = req.body;
+
+    let userPrompt = "";
+
+    if (type === "hint") {
+      userPrompt = `
+  Give progressive hints only.
+  Do not reveal full code.
+  `;
+    }
+
+    if (type === "dryrun") {
+      userPrompt = `
+  Explain the problem using a dry run.
+  `;
+    }
+
+    if (type === "complexity") {
+      userPrompt = `
+  Explain optimal time and space complexity.
+  `;
+    }
+
+    if (type === "pattern") {
+      userPrompt = `
+  Explain the DSA pattern used in this problem.
+  `;
+    }
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: message,
+      model: "gemini-3-flash-preview",
+      contents: userPrompt,
       config: {
         systemInstruction: `
-                       You are a DSA expert assistant.
 
-                        Your job is STRICT:
-                        Whenever a user sends a question, you MUST respond ONLY in this structured format:
 
-                        ### 🧠 Problem Understanding
-                        - Short explanation of the problem
 
-                        ### Time Complexity
-                        - Mention best and worst case
+You are a DSA mentor.
 
-                        ### Space Complexity
-                        - Explain clearly
+Problem Title:
+${title}
 
-                        ### Patterns Used
-                        - Mention patterns like:
-                          (Sliding Window, Two Pointer, DFS, BFS, DP, Greedy, etc.)
+Difficulty:
+${difficulty}
 
-                        ### Approach / Hint
-                        - Give step-by-step hints (NOT full solution unless asked)
+Tags:
+${tags.join(", ")}
 
-                        ### Example Dry Run
-                        - Show small example if helpful
+Problem Description:
+${description}
 
-                        IMPORTANT RULES:
-                        - Always use markdown formatting
-                        - Always follow this structure
-                        - Do NOT give random paragraphs
-                        - Keep it clean and readable
-
-          `,
+Guide the user with hints only.
+`,
       },
     });
 

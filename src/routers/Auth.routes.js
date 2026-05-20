@@ -38,6 +38,7 @@ Authrouter.get(
       httpOnly: true,
       sameSite: "lax",
       secure: false,
+      path: "/",
       maxAge: 2 * 24 * 60 * 60 * 1000,
     });
 
@@ -109,6 +110,7 @@ Authrouter.post("/login", authLimiter, async (req, res) => {
       sameSite: "lax",
       secure: false,
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
     });
 
     return res.status(200).json({
@@ -252,12 +254,12 @@ Authrouter.get("/user-stats", authmiddleware, async (req, res) => {
           as: "problemDetails",
         },
       },
-      { 
-  $unwind: { 
-    path: "$problemDetails", 
-    preserveNullAndEmptyArrays: true 
-  } 
-},
+      {
+        $unwind: {
+          path: "$problemDetails",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
       {
         $group: {
           _id: "$problemDetails.difficulty",
@@ -286,24 +288,18 @@ Authrouter.get("/user-stats", authmiddleware, async (req, res) => {
   }
 });
 
-Authrouter.post("/logout", authmiddleware, (req, res) => {
-  try {
-    res.clearCookie("token", {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false,
-    });
+Authrouter.post("/logout", (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false,
+    path: "/",
+  });
 
-    return res.status(200).json({
-      success: true,
-      message: "Logged out successfully",
-    });
-  } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Server failed",
-    });
-  }
+  return res.status(200).json({
+    success: true,
+    message: "Logged out successfully",
+  });
 });
 
 Authrouter.get("/users", authmiddleware, async (req, res) => {
@@ -325,28 +321,63 @@ Authrouter.get("/users", authmiddleware, async (req, res) => {
 });
 
 Authrouter.get("/user-activity", authmiddleware, async (req, res) => {
-
   try {
     const activity = await Submission.aggregate([
-      { 
-        $match: { 
-          // Explicitly cast string ID to MongoDB ObjectId
-          user: new mongoose.Types.ObjectId(req.user.id)
-          
-        } 
-      },
       {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-          count: { $sum: 1 },
+        $match: {
+          user: new mongoose.Types.ObjectId(req.user.id),
+          status: "Accepted",
         },
       },
-      { $project: { date: "$_id", count: 1, _id: 0 } },
-      { $sort: { date: 1 } },
+
+      {
+        $lookup: {
+          from: "problems",
+          localField: "problem",
+          foreignField: "_id",
+          as: "problemDetails",
+        },
+      },
+
+      {
+        $unwind: "$problemDetails",
+      },
+
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$createdAt",
+            },
+          },
+
+          count: { $sum: 1 },
+
+          problems: {
+            $push: "$problemDetails.title",
+          },
+        },
+      },
+
+      {
+        $project: {
+          _id: 0,
+
+          date: "$_id",
+
+          count: 1,
+
+          problems: 1,
+        },
+      },
     ]);
+
     res.json(activity);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({
+      message: err.message,
+    });
   }
 });
 
