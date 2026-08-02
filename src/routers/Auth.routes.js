@@ -31,7 +31,7 @@ Authrouter.get(
         role: req.user.role,
       },
       process.env.JWT_KEY,
-      { expiresIn: "7d" },
+      { expiresIn: "2d" },
     );
 
     res.cookie("token", token, {

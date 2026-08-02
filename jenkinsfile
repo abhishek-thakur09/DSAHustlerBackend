@@ -1,0 +1,30 @@
+    pipeline {
+        agent any
+
+        stages {
+
+            stage('Clone') {
+                steps {
+                    checkout scm
+                }
+            }
+
+            stage('Install Dependencies') {
+                steps {
+                    sh 'npm ci'
+                }
+            }
+
+        stage('Run Tests') {
+        steps {
+            echo 'No tests available'
+        }
+    }
+
+            stage('Build Docker Image') {
+                steps {
+                    sh 'docker build -t dsa-backend .'
+                }
+            }
+        }
+    }
