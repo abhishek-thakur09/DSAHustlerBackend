@@ -19,12 +19,12 @@
         steps {
             echo 'No tests available'
         }
-    }
-
             stage('Build Docker Image') {
                 steps {
                     sh 'docker build -t dsa-backend .'
                 }
+    }
+
             }
         }
     }
